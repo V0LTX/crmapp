@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  REPRESENTATIVE
+}
+
+enum VisitType {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum ClientStatus {
+  ACTIVE
+  NO_ANSWER
+  REJECTED
+}
+
+model Region {
+  id        Int      @id @default(autoincrement())
+  code      Int      @unique
+  name      String
+  users     User[]
+  clients   Client[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(REPRESENTATIVE)
+  regionId     Int?
+  region       Region?  @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdClients Client[]      @relation("ClientCreator")
+  visits         VisitHistory[] @relation("VisitUser")
+
+  @@index([role, regionId])
+}
+
+model Client {
+  id            Int          @id @default(autoincrement())
+  name          String
+  phone         String
+  address       String
+  products      String
+  regionId      Int
+  region        Region       @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  visitType     VisitType
+  status        ClientStatus @default(ACTIVE)
+  nextVisitDate DateTime
+  createdById   Int?
+  createdBy     User?        @relation("ClientCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  visits VisitHistory[]
+
+  @@index([regionId, visitType, status, nextVisitDate])
+  @@index([status, nextVisitDate])
+  @@index([name])
+}
+
+model VisitHistory {
+  id                    Int          @id @default(autoincrement())
+  clientId              Int
+  client                Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  visitedById           Int
+  visitedBy             User         @relation("VisitUser", fields: [visitedById], references: [id], onDelete: Restrict)
+  visitDate             DateTime     @default(now())
+  previousStatus        ClientStatus
+  newStatus             ClientStatus
+  note                  String?
+  previousNextVisitDate DateTime?
+  newNextVisitDate      DateTime?
+  createdAt             DateTime     @default(now())
+
+  @@index([clientId, visitDate])
+  @@index([visitedById, visitDate])
+}

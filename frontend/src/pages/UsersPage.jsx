@@ -1,0 +1,279 @@
+import { useCallback, useEffect, useState } from "react";
+import { regionsApi, usersApi } from "../api/crmApi";
+import { useAuth } from "../auth/AuthContext";
+
+const initialForm = {
+  name: "",
+  email: "",
+  password: "",
+  role: "REPRESENTATIVE",
+  regionId: ""
+};
+
+export default function UsersPage() {
+  const { user: currentUser } = useAuth();
+
+  const [usersData, setUsersData] = useState({ items: [], totalPages: 1, page: 1 });
+  const [regions, setRegions] = useState([]);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState(initialForm);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [createLoading, setCreateLoading] = useState(false);
+  const [deleteLoadingId, setDeleteLoadingId] = useState(null);
+  const [toggleLoadingId, setToggleLoadingId] = useState(null);
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const response = await usersApi.list({
+        page,
+        pageSize: 20,
+        search: search || undefined
+      });
+      setUsersData(response.data);
+    } catch (err) {
+      setError(err.message || "تعذر تحميل المستخدمين");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadRegions() {
+      try {
+        const response = await regionsApi.list();
+        if (mounted) {
+          setRegions(response.data.items || []);
+        }
+      } catch (err) {
+        // Regions list is optional for the create form.
+      }
+    }
+
+    loadRegions();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  async function handleCreate(event) {
+    event.preventDefault();
+    setCreateLoading(true);
+    setError("");
+
+    try {
+      await usersApi.create({
+        name: form.name,
+        email: form.email,
+        password: form.password,
+        role: form.role,
+        regionId: form.role === "REPRESENTATIVE" ? Number(form.regionId) : undefined
+      });
+
+      setForm(initialForm);
+      await loadUsers();
+    } catch (err) {
+      setError(err.message || "تعذر إنشاء المستخدم");
+    } finally {
+      setCreateLoading(false);
+    }
+  }
+
+  async function toggleUserStatus(item) {
+    setError("");
+    setToggleLoadingId(item.id);
+
+    try {
+      await usersApi.update(item.id, { isActive: !item.isActive });
+      await loadUsers();
+    } catch (err) {
+      setError(err.message || "تعذر تحديث حالة المستخدم");
+    } finally {
+      setToggleLoadingId(null);
+    }
+  }
+
+  async function deleteUser(item) {
+    const confirmed = window.confirm(`هل تريد حذف المستخدم ${item.name}؟`);
+    if (!confirmed) {
+      return;
+    }
+
+    setError("");
+    setDeleteLoadingId(item.id);
+
+    try {
+      await usersApi.remove(item.id);
+      await loadUsers();
+    } catch (err) {
+      setError(err.message || "تعذر حذف المستخدم");
+    } finally {
+      setDeleteLoadingId(null);
+    }
+  }
+
+  function isCurrentUser(item) {
+    return Number(item.id) === Number(currentUser?.id);
+  }
+
+  return (
+    <div className="stack">
+      <section className="panel">
+        <div className="panel-header">
+          <h3>إضافة مستخدم</h3>
+        </div>
+
+        <form className="form-grid create-form" onSubmit={handleCreate}>
+          <label>
+            الاسم
+            <input value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} required />
+          </label>
+          <label>
+            البريد الإلكتروني
+            <input
+              type="email"
+              value={form.email}
+              onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
+              required
+            />
+          </label>
+          <label>
+            كلمة المرور
+            <input
+              type="password"
+              value={form.password}
+              onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+              required
+            />
+          </label>
+          <label>
+            الصلاحية
+            <select value={form.role} onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value }))}>
+              <option value="REPRESENTATIVE">مندوب</option>
+              <option value="ADMIN">أدمن</option>
+            </select>
+          </label>
+          <label>
+            المنطقة
+            <select
+              value={form.regionId}
+              disabled={form.role !== "REPRESENTATIVE"}
+              onChange={(event) => setForm((prev) => ({ ...prev, regionId: event.target.value }))}
+              required={form.role === "REPRESENTATIVE"}
+            >
+              <option value="">اختر المنطقة</option>
+              {regions.map((region) => (
+                <option key={region.id} value={region.id}>
+                  {region.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" className="primary-btn users-create-btn" disabled={createLoading}>
+            {createLoading ? "جاري الحفظ..." : "إنشاء المستخدم"}
+          </button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header split">
+          <h3>المستخدمون</h3>
+          <div className="filters-row compact">
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+              placeholder="بحث بالاسم أو البريد"
+            />
+            <button type="button" className="secondary-btn" onClick={loadUsers}>
+              تحديث
+            </button>
+          </div>
+        </div>
+
+        {error && <div className="error-box">{error}</div>}
+
+        {loading ? (
+          <div className="table-empty">جاري تحميل المستخدمين...</div>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>الاسم</th>
+                  <th>البريد</th>
+                  <th>الدور</th>
+                  <th>المنطقة</th>
+                  <th>الحالة</th>
+                  <th>إجراء</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usersData.items.map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td>{item.email}</td>
+                    <td>{item.role === "ADMIN" ? "أدمن" : "مندوب"}</td>
+                    <td>{item.region?.name || "-"}</td>
+                    <td>{item.isActive ? "نشط" : "موقوف"}</td>
+                    <td className="actions-cell">
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        disabled={toggleLoadingId === item.id || isCurrentUser(item)}
+                        onClick={() => toggleUserStatus(item)}
+                        title={isCurrentUser(item) ? "لا يمكن إيقاف حسابك الحالي" : item.isActive ? "إيقاف المستخدم" : "تفعيل المستخدم"}
+                      >
+                        {toggleLoadingId === item.id ? "جاري..." : item.isActive ? "إيقاف" : "تفعيل"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="danger-btn"
+                        disabled={isCurrentUser(item) || deleteLoadingId === item.id}
+                        onClick={() => deleteUser(item)}
+                        title={isCurrentUser(item) ? "لا يمكن حذف حسابك الحالي" : "حذف المستخدم"}
+                      >
+                        {deleteLoadingId === item.id ? "جاري الحذف..." : "حذف"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="pagination">
+          <button type="button" disabled={page <= 1} onClick={() => setPage((prev) => prev - 1)}>
+            السابق
+          </button>
+          <span>
+            صفحة {usersData.page} من {usersData.totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={page >= usersData.totalPages}
+            onClick={() => setPage((prev) => prev + 1)}
+          >
+            التالي
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
