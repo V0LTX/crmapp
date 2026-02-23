@@ -13,4 +13,4 @@ COPY scripts ./scripts
 
 EXPOSE 5000
 
-CMD ["npm", "start"]
+CMD ["sh", "-c", "npm run db:migrate:deploy && npm start"]
